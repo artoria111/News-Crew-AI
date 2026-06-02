@@ -1,0 +1,13 @@
+[project]
+name = "news-crew"
+version = "0.1.0"
+description = "AI-powered news collection and analysis system using CrewAI"
+requires-python = ">=3.12"
+dependencies = [
+    "crewai>=0.80.0",
+    "crewai-tools>=0.30.0",
+    "python-dotenv>=1.0.0",
+    "feedparser>=6.0.0",
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.11.0",
+]
