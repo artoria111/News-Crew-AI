@@ -75,3 +75,41 @@ def create_tasks(collector, analyzer, reporter):
     )
 
     return collect_task, analyze_task, report_task
+
+
+def create_audit_task(auditor, collect_task, analyze_task, report_task):
+    return Task(
+        description=(
+            "You are auditing a 3-stage news analysis pipeline. Review the "
+            "outputs from each stage and evaluate them systematically.\n\n"
+            "Evaluate across these 7 dimensions, scoring each 1-10:\n\n"
+            "1. **新闻源可信度** (Source Credibility) — Are the RSS sources "
+            "authoritative and diverse? Are outlets like 36kr and ThePaper "
+            "legitimate news sources?\n"
+            "2. **新闻质量** (Article Quality) — Are the collected articles "
+            "relevant to the search topic, timely, and information-dense?\n"
+            "3. **摘要质量** (Summary Quality) — Did the collector accurately "
+            "capture key points without distortion or omission?\n"
+            "4. **分析质量** (Analysis Quality) — Are cross-cutting themes "
+            "correctly identified? Are contradictions surfaced? Is sentiment "
+            "assessment reasonable?\n"
+            "5. **报告质量** (Report Quality) — Is the markdown well-formatted? "
+            "Is the logical flow clear? Is the language professional?\n"
+            "6. **效率评估** (Efficiency) — Based on the volume of collected "
+            "data and processing speed, how efficient was the pipeline?\n"
+            "7. **数据流完整性** (Data Flow Integrity) — Was information "
+            "preserved or lost between stages? Any distortion detected?\n\n"
+            "Output a complete quality audit scorecard in Chinese Markdown:\n"
+            "- **总体评分** (average of 7 dimensions)\n"
+            "- **逐项评分表**: each dimension with score (1-10) + 1-2 sentence comment\n"
+            "- **三大亮点**: Top 3 strengths observed\n"
+            "- **三项改进建议**: Top 3 actionable improvement suggestions"
+        ),
+        expected_output=(
+            "A structured quality audit scorecard in Chinese Markdown, "
+            "containing: overall score, per-dimension scores with comments, "
+            "top 3 strengths, and top 3 improvement suggestions."
+        ),
+        agent=auditor,
+        context=[collect_task, analyze_task, report_task],
+    )

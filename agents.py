@@ -2,13 +2,28 @@ import os
 from crewai import Agent, LLM
 
 
-def create_llm():
-    model_name = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+def create_llm(provider: str = ""):
+    provider = provider or os.getenv("LLM_PROVIDER", "siliconflow")
+
+    providers = {
+        "deepseek": {
+            "model_name": os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"),
+            "api_key": os.getenv("DEEPSEEK_API_KEY"),
+            "base_url": os.getenv("DEEPSEEK_URL", "https://api.deepseek.com/v1"),
+        },
+        "siliconflow": {
+            "model_name": os.getenv("SILICONFLOW_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct"),
+            "api_key": os.getenv("SILICONFLOW_API_KEY"),
+            "base_url": os.getenv("SILICONFLOW_URL", "https://api.siliconflow.cn/v1"),
+        },
+    }
+
+    cfg = providers.get(provider, providers["siliconflow"])
+
     return LLM(
-        model=f"openai/{model_name}",
-        base_url="https://api.deepseek.com/v1",
-        api_key=api_key,
+        model=f"openai/{cfg['model_name']}",
+        base_url=cfg["base_url"],
+        api_key=cfg["api_key"],
         temperature=0.3,
         max_tokens=8192,
     )
@@ -76,3 +91,30 @@ def create_agents(search_tool, scrape_tool, llm):
     )
 
     return collector, analyzer, reporter
+
+
+def create_auditor(llm):
+    auditor = Agent(
+        role="Quality Assurance Auditor",
+        goal=(
+            "Rigorously evaluate the quality, accuracy, and efficiency of "
+            "the news collection, analysis, and reporting process across "
+            "multiple dimensions. Produce a structured scorecard with "
+            "actionable feedback."
+        ),
+        backstory=(
+            "You are a veteran editorial quality auditor with 20 years of "
+            "experience in newsroom quality control. You have a sharp eye "
+            "for detecting inaccuracies, biases, logical gaps, and "
+            "information loss in multi-stage editorial workflows. You are "
+            "known for fair but rigorous evaluations that help teams "
+            "continuously improve. You evaluate work systematically across "
+            "multiple dimensions and produce structured scorecards with "
+            "specific, actionable feedback in Chinese."
+        ),
+        tools=[],
+        llm=llm,
+        verbose=True,
+        allow_delegation=False,
+    )
+    return auditor
