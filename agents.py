@@ -29,22 +29,21 @@ def create_llm(provider: str = ""):
     )
 
 
-def create_agents(search_tool, scrape_tool, llm):
+def create_agents(search_tool, llm):
     collector = Agent(
         role="News Collector Specialist",
         goal=(
             "Search the web for the latest news articles about specified topics "
-            "using DuckDuckGo and extract full article content for analysis."
+            "from RSS feeds and organize them into structured collections."
         ),
         backstory=(
             "You are a seasoned digital news curator with a keen eye for "
-            "relevant, timely information. You excel at finding diverse "
-            "sources across the internet using the Baidu News search engine "
-            "and extracting meaningful content from web pages. You prioritize "
-            "credible sources and provide thorough coverage. You work in "
-            "Chinese and English to ensure comprehensive results."
+            "relevant, timely information. You search across 8 RSS feeds "
+            "covering Chinese and international sources, filter by topic "
+            "relevance, and organize concise article summaries. You work "
+            "in Chinese and English to ensure comprehensive results."
         ),
-        tools=[search_tool, scrape_tool],
+        tools=[search_tool],
         llm=llm,
         verbose=True,
         allow_delegation=False,

@@ -5,22 +5,20 @@ def create_tasks(collector, analyzer, reporter):
     collect_task = Task(
         description=(
             "Search for the latest news articles about the topic: {topic}.\n"
-            "Use RSSNewsSearchTool to find up to {max_articles} articles "
-            "published within the last {days_back} days.\n"
-            "For each article found:\n"
+            "Use RSSNewsSearchTool once with the topic as the query.\n"
+            "From the results, select up to {max_articles} most relevant "
+            "articles from the last {days_back} days.\n"
+            "For each selected article:\n"
             "- Record the title, URL, source, and publication date\n"
-            "- Use the ScrapeWebsiteTool to extract the full article content\n"
-            "- Summarize the key points in 2-3 sentences in Chinese\n\n"
-            "Compile everything into a structured collection with clear "
-            "sections for each article. If no articles are found or a "
-            "website cannot be scraped, note this clearly and continue "
-            "with the available information."
+            "- Use the summary already provided by RSS — do NOT scrape full articles\n"
+            "- Add 1-2 bullet points of the most important insight from the summary\n\n"
+            "Compile a clean, structured list. If no articles are found, "
+            "state that clearly and suggest trying broader keywords."
         ),
         expected_output=(
-            "A structured list of news articles. Each entry includes: "
-            "title, source URL, publication date, source name, a 2-3 "
-            "sentence Chinese summary, and 3-5 key bullet points "
-            "extracted from the article content."
+            "A structured list of up to {max_articles} news articles. Each entry "
+            "includes: title, source URL, publication date, source name, "
+            "a brief Chinese summary, and 1-2 key bullet points."
         ),
         agent=collector,
     )

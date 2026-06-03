@@ -54,7 +54,7 @@ with st.sidebar:
 
     provider = st.selectbox(
         "🧠 LLM 模型",
-        options=["siliconflow", "deepseek"],
+        options=["deepseek","siliconflow"],
         index=0,
         format_func=lambda p: "SiliconFlow (Qwen2.5-7B)" if p == "siliconflow" else "DeepSeek (deepseek-chat)",
     )
@@ -86,7 +86,7 @@ with col1:
     st.markdown('<p class="main-subheader">智能新闻搜集 · 分析 · 报告 · 审核</p>', unsafe_allow_html=True)
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("数据源: 36氪 · 澎湃新闻")
+    st.caption("数据源: 36氪 · 人民网 · IT之家 · China Daily · 韩联社 · France24")
 
 st.markdown("---")
 

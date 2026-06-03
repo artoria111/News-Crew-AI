@@ -3,22 +3,24 @@ import feedparser
 from crewai.tools import BaseTool
 
 NEWS_FEEDS = [
-    {
-        "name": "36氪",
-        "url": "https://36kr.com/feed",
-    },
-    {
-        "name": "澎湃新闻",
-        "url": "https://www.thepaper.cn/rss_www.xml",
-    },
+    # 国内中文源
+    {"name": "36氪", "url": "https://36kr.com/feed"},
+    {"name": "人民网-科技", "url": "http://www.people.com.cn/rss/scitech.xml"},
+    {"name": "人民网-财经", "url": "http://www.people.com.cn/rss/finance.xml"},
+    {"name": "人民网-国际", "url": "http://www.people.com.cn/rss/world.xml"},
+    {"name": "IT之家", "url": "https://www.ithome.com/rss/"},
+    # 国际英文源
+    {"name": "China Daily", "url": "https://www.chinadaily.com.cn/rss/world_rss.xml"},
+    {"name": "Yonhap (韩联社)", "url": "https://en.yna.co.kr/RSS/news.xml"},
+    {"name": "France24", "url": "https://www.france24.com/en/rss"},
 ]
 
 
 class RSSNewsSearchTool(BaseTool):
     name: str = "RSS News Search"
     description: str = (
-        "Search news articles from Chinese news RSS feeds. "
-        "Input: a search keyword or topic in Chinese. "
+        "Search news articles from Chinese and international RSS feeds. "
+        "Input: a search keyword or topic (Chinese or English). "
         "Returns: matched articles with title, URL, source, date, and summary."
     )
 
@@ -56,14 +58,6 @@ class RSSNewsSearchTool(BaseTool):
             text = (title + " " + summary).lower()
             if any(kw in text for kw in keywords):
                 matched.append(entry)
-
-        for entry in entries:
-            if entry not in matched:
-                title = entry.get("title", "").lower()
-                summary = entry.get("summary", entry.get("description", "")).lower()
-                text = title + " " + summary
-                if any(kw in text for kw in keywords):
-                    matched.append(entry)
 
         if not matched:
             return f"No articles matching '{query}' found in {len(entries)} total articles."

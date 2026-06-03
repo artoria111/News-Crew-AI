@@ -2,7 +2,6 @@ import os
 
 from dotenv import load_dotenv
 from crewai import Crew, Process
-from crewai_tools import ScrapeWebsiteTool
 from agents import create_llm, create_agents, create_auditor
 from tasks import create_tasks, create_audit_task
 from tools import RSSNewsSearchTool
@@ -32,9 +31,8 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7, provider: st
 
     llm = create_llm(provider)
     search_tool = RSSNewsSearchTool()
-    scrape_tool = ScrapeWebsiteTool()
 
-    collector, analyzer, reporter = create_agents(search_tool, scrape_tool, llm)
+    collector, analyzer, reporter = create_agents(search_tool, llm)
     collect_task, analyze_task, report_task = create_tasks(collector, analyzer, reporter)
 
     auditor = create_auditor(llm)
