@@ -1,5 +1,11 @@
+import re
 import streamlit as st
 from main import run_crew, ConfigError
+
+
+def clean_md(text: str) -> str:
+    """strip raw html tags that leak into markdown rendering"""
+    return re.sub(r"<br\s*/?>", "", text, flags=re.I)
 
 # ── page config ──────────────────────────────────────────
 st.set_page_config(
@@ -42,7 +48,7 @@ with st.sidebar:
         min_value=1,
         max_value=20,
         value=5,
-        help="从 RSS 源中筛选匹配的文章数量",
+        help="从搜狗微信搜索结果中筛选的文章数量",
     )
 
     days_back = st.selectbox(
@@ -83,20 +89,20 @@ with st.sidebar:
 col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown('<p class="main-header">📰 News Crew AI</p>', unsafe_allow_html=True)
-    st.markdown('<p class="main-subheader">智能新闻搜集 · 分析 · 报告 · 审核</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-subheader">智能新闻搜集 · 分析 · 事实核查 · 报告 · 审核</p>', unsafe_allow_html=True)
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("数据源: 36氪 · 人民网 · IT之家 · China Daily · 韩联社 · France24")
+    st.caption("数据源: 搜狗微信搜索 (微信公众号)")
 
 st.markdown("---")
 
 # ── show history result ──────────────────────────────────
 if st.session_state.last_report and not start_btn:
     st.success(f"📋 上次报告: **{st.session_state.last_topic}**")
-    st.markdown(st.session_state.last_report)
+    st.markdown(clean_md(st.session_state.last_report))
     if st.session_state.last_audit:
         with st.expander("📊 查看质量审核评分卡", expanded=False):
-            st.markdown(st.session_state.last_audit)
+            st.markdown(clean_md(st.session_state.last_audit))
 
 # ── run crew ─────────────────────────────────────────────
 if start_btn:
@@ -105,10 +111,11 @@ if start_btn:
     else:
         try:
             with st.status("🔄 正在执行新闻分析流程...", expanded=True) as status:
-                st.write("🔍 **阶段 1/4** — 搜集新闻中...")
-                st.write("📊 **阶段 2/4** — 分析整合中...")
-                st.write("📝 **阶段 3/4** — 生成报告中...")
-                st.write("🛡️ **阶段 4/4** — 质量审核中...")
+                st.write("🔍 **阶段 1/5** — 搜集新闻中...")
+                st.write("📊 **阶段 2/5** — 分析整合中...")
+                st.write("🔬 **阶段 3/5** — 事实核查中...")
+                st.write("📝 **阶段 4/5** — 生成报告中...")
+                st.write("🛡️ **阶段 5/5** — 质量审核中...")
 
                 report, audit = run_crew(
                     topic=topic.strip(),
@@ -124,6 +131,7 @@ if start_btn:
                 )
 
             # report
+            report = clean_md(report)
             st.success(f"### 📄 报告: {topic}")
             st.markdown(report)
 
@@ -136,6 +144,7 @@ if start_btn:
 
             # audit scorecard
             if audit:
+                audit = clean_md(audit)
                 st.markdown("---")
                 with st.expander("📊 质量审核评分卡", expanded=True):
                     st.markdown(audit)

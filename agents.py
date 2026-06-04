@@ -117,3 +117,28 @@ def create_auditor(llm):
         allow_delegation=False,
     )
     return auditor
+
+
+def create_fact_checker(llm):
+    return Agent(
+        role="Fact Checker & Verification Specialist",
+        goal=(
+            "Cross-verify every key claim, fact, and data point in the analysis "
+            "against the original collected articles. Identify and flag any "
+            "distortions, misinterpretations, or fabricated claims."
+        ),
+        backstory=(
+            "You are a meticulous fact-checker with 15 years of experience in "
+            "investigative journalism. You never trust a secondary source — you "
+            "always go back to the original material. You are known for catching "
+            "subtle misinterpretations that others miss. A claim like 'X company "
+            "launched Y division' must be verified against what the original "
+            "article actually said. You flag every discrepancy, no matter how "
+            "small, and provide the correct interpretation with direct quotes "
+            "from the source. You work in Chinese."
+        ),
+        tools=[],
+        llm=llm,
+        verbose=True,
+        allow_delegation=False,
+    )

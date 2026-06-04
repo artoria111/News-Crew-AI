@@ -1,84 +1,90 @@
+import re
 import requests
-import feedparser
+from bs4 import BeautifulSoup
 from crewai.tools import BaseTool
 
-NEWS_FEEDS = [
-    # 国内中文源
-    {"name": "36氪", "url": "https://36kr.com/feed"},
-    {"name": "人民网-科技", "url": "http://www.people.com.cn/rss/scitech.xml"},
-    {"name": "人民网-财经", "url": "http://www.people.com.cn/rss/finance.xml"},
-    {"name": "人民网-国际", "url": "http://www.people.com.cn/rss/world.xml"},
-    {"name": "IT之家", "url": "https://www.ithome.com/rss/"},
-    # 国际英文源
-    {"name": "China Daily", "url": "https://www.chinadaily.com.cn/rss/world_rss.xml"},
-    {"name": "Yonhap (韩联社)", "url": "https://en.yna.co.kr/RSS/news.xml"},
-    {"name": "France24", "url": "https://www.france24.com/en/rss"},
-]
 
-
-class RSSNewsSearchTool(BaseTool):
-    name: str = "RSS News Search"
+class WeChatSearchTool(BaseTool):
+    name: str = "WeChat News Search"
     description: str = (
-        "Search news articles from Chinese and international RSS feeds. "
-        "Input: a search keyword or topic (Chinese or English). "
-        "Returns: matched articles with title, URL, source, date, and summary."
+        "Search WeChat public account articles via Sogou. "
+        "Input: a search query in Chinese. "
+        "Returns: matched articles from diverse WeChat accounts "
+        "with title, URL, source account, date, and snippet."
     )
 
-    def _fetch_all(self):
+    @staticmethod
+    def _clean(text: str) -> str:
+        # remove surrogate characters that break llm encoding
+        return text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+
+    def _run(self, query: str) -> str:
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36"
-            )
+            ),
+            "Accept-Language": "zh-CN,zh;q=0.9",
         }
-        entries = []
-        for feed in NEWS_FEEDS:
-            try:
-                resp = requests.get(feed["url"], headers=headers, timeout=20)
-                resp.encoding = "utf-8"
-                parsed = feedparser.parse(resp.text)
-                for entry in parsed.entries:
-                    entry["_source_name"] = feed["name"]
-                    entries.append(entry)
-            except Exception:
-                continue
-        return entries
-
-    def _run(self, query: str) -> str:
-        entries = self._fetch_all()
-        if not entries:
-            return "Failed to fetch news from any RSS feed."
-
-        keywords = query.lower().split()
-        matched = []
-        for entry in entries:
-            title = entry.get("title", "")
-            summary = entry.get("summary", entry.get("description", ""))
-            text = (title + " " + summary).lower()
-            if any(kw in text for kw in keywords):
-                matched.append(entry)
-
-        if not matched:
-            return f"No articles matching '{query}' found in {len(entries)} total articles."
-
         results = []
-        for entry in matched[:15]:
-            title = entry.get("title", "N/A")
-            url = entry.get("link", "N/A")
-            source = entry.get("_source_name", "N/A")
-            date = entry.get("published", entry.get("updated", "N/A"))
-            summary = entry.get("summary", entry.get("description", "N/A"))
-            # Strip HTML tags from summary
-            import re
-            summary = re.sub(r"<[^>]+>", "", summary)[:300]
+
+        try:
+            resp = requests.get(
+                "https://weixin.sogou.com/weixin",
+                params={"type": 2, "query": query},
+                headers=headers,
+                timeout=15,
+            )
+            resp.encoding = "utf-8"
+        except requests.RequestException as e:
+            return f"WeChat search request failed: {e}"
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        for item in soup.select(".txt-box"):
+            # title + link
+            title_el = item.select_one("h3 a")
+            if not title_el:
+                continue
+            title = self._clean(title_el.get_text(strip=True))
+            link = title_el.get("href", "")
+            if link.startswith("/"):
+                link = "https://weixin.sogou.com" + link
+
+            # source account
+            source_el = item.select_one(".s-p .all-time-y2")
+            source = self._clean(source_el.get_text(strip=True)) if source_el else "未知公众号"
+
+            # date from JS timestamp
+            date = ""
+            s2_el = item.select_one(".s-p .s2")
+            if s2_el:
+                script = s2_el.get_text(strip=True) if s2_el else ""
+                ts_match = re.search(r"timeConvert\('(\d+)'\)", script)
+                if ts_match:
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromtimestamp(int(ts_match.group(1)))
+                        date = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+
+            # snippet
+            snippet_el = item.select_one(".txt-info")
+            snippet = self._clean(snippet_el.get_text(strip=True)) if snippet_el else ""
+            # clean leading dot
+            snippet = re.sub(r"^·\s*", "", snippet)[:300]
 
             results.append(
                 f"Title: {title}\n"
-                f"URL: {url}\n"
-                f"Source: {source}\n"
+                f"URL: {link}\n"
+                f"Source: {source} (微信公众号)\n"
                 f"Date: {date}\n"
-                f"Summary: {summary}\n"
+                f"Snippet: {snippet}\n"
             )
 
-        return "\n---\n".join(results)
+        if not results:
+            return f"No WeChat articles found for: {query}"
+
+        return "\n---\n".join(results[:15])
