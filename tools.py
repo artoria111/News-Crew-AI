@@ -1,4 +1,5 @@
 import re
+import time
 import requests
 from bs4 import BeautifulSoup
 from crewai.tools import BaseTool
@@ -29,20 +30,28 @@ class WeChatSearchTool(BaseTool):
         }
         results = []
 
-        try:
-            resp = requests.get(
-                "https://weixin.sogou.com/weixin",
-                params={"type": 2, "query": query},
-                headers=headers,
-                timeout=15,
-            )
-            resp.encoding = "utf-8"
-        except requests.RequestException as e:
-            return f"WeChat search request failed: {e}"
+        for attempt in range(2):
+            try:
+                resp = requests.get(
+                    "https://weixin.sogou.com/weixin",
+                    params={"type": 2, "query": query},
+                    headers=headers,
+                    timeout=15,
+                )
+                resp.encoding = "utf-8"
+            except requests.RequestException as e:
+                if attempt == 1:
+                    return f"WeChat search request failed: {e}"
+                time.sleep(2)
+                continue
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select(".txt-box")
+            if items:
+                break  # got results, proceed
+            time.sleep(2)  # empty page — retry
 
-        for item in soup.select(".txt-box"):
+        for item in items:
             # title + link
             title_el = item.select_one("h3 a")
             if not title_el:
@@ -93,7 +102,8 @@ class WeChatSearchTool(BaseTool):
                 "招聘公告", "招聘启事", "培训通知", "开班通知",
                 "直播预告", "直播预约", "今晚直播",
                 "有奖转发", "转发抽奖", "投票",
-                "停水通知", "停电通知", "放假通知", "天气周报","一文读懂"
+                "停水通知", "停电通知", "放假通知", "天气周报","一文读懂","大赛报名",
+                "学院"
             ]
             check_text = title + " " + snippet
             if any(kw in check_text for kw in spam_keywords):

@@ -18,8 +18,13 @@ st.set_page_config(
 # ── style ────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .main-header { font-size: 2rem; font-weight: 700; margin-bottom: 0; }
-    .main-subheader { color: #888; font-size: 0.9rem; margin-top: 0; }
+    html { font-size: 18px; }
+    .main-header { font-size: 2.2rem; font-weight: 700; margin-bottom: 0; }
+    .main-subheader { color: #888; font-size: 1rem; margin-top: 0; }
+    .stMarkdown, .stText, p, li { font-size: 1.05rem; }
+    h1 { font-size: 2rem !important; }
+    h2 { font-size: 1.6rem !important; }
+    h3 { font-size: 1.3rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -168,7 +173,7 @@ if start_btn:
                 st.session_state.last_topic = topic
 
         except ConfigError as e:
-            st.error(f"⚠️ 配置错误: {e}")
+            st.warning(str(e))
         except Exception as e:
             st.error(f"❌ 运行出错: {e}")
 
