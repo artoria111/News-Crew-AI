@@ -2,28 +2,14 @@ import os
 from crewai import Agent, LLM
 
 
-def create_llm(provider: str = ""):
-    provider = provider or os.getenv("LLM_PROVIDER", "siliconflow")
-
-    providers = {
-        "deepseek": {
-            "model_name": os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"),
-            "api_key": os.getenv("DEEPSEEK_API_KEY"),
-            "base_url": os.getenv("DEEPSEEK_URL", "https://api.deepseek.com/v1"),
-        },
-        "siliconflow": {
-            "model_name": os.getenv("SILICONFLOW_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct"),
-            "api_key": os.getenv("SILICONFLOW_API_KEY"),
-            "base_url": os.getenv("SILICONFLOW_URL", "https://api.siliconflow.cn/v1"),
-        },
-    }
-
-    cfg = providers.get(provider, providers["siliconflow"])
-
+def create_llm():
+    model_name = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
+    api_key = os.getenv("LLM_API_KEY")
+    base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
     return LLM(
-        model=f"openai/{cfg['model_name']}",
-        base_url=cfg["base_url"],
-        api_key=cfg["api_key"],
+        model=f"openai/{model_name}",
+        base_url=base_url,
+        api_key=api_key,
         temperature=0.3,
         max_tokens=8192,
     )

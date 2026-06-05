@@ -12,18 +12,10 @@ class ConfigError(Exception):
     pass
 
 
-def validate_env(provider: str):
-    required = {
-        "deepseek": ["DEEPSEEK_API_KEY", "DEEPSEEK_MODEL_NAME"],
-        "siliconflow": ["SILICONFLOW_API_KEY", "SILICONFLOW_MODEL_NAME"],
-    }
-    keys = required.get(provider, required["siliconflow"])
-    missing = [v for v in keys if not os.getenv(v)]
+def validate_env():
+    missing = [v for v in ["LLM_API_KEY"] if not os.getenv(v)]
     if missing:
-        raise ConfigError(
-            f"缺少环境变量 ({provider}): {', '.join(missing)}。"
-            f"请在 .env 文件中配置。"
-        )
+        raise ConfigError("缺少 LLM_API_KEY，请在 .env 文件中配置。")
 
 
 def _count_errors(fact_check_output: str) -> int:
@@ -73,11 +65,11 @@ def _validate_report(report: str, query: str) -> str:
     return report + ref_section
 
 
-def run_crew(topic: str, max_articles: int = 5, days_back: int = 7, provider: str = "siliconflow"):
+def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
     load_dotenv()
-    validate_env(provider)
+    validate_env()
 
-    llm = create_llm(provider)
+    llm = create_llm()
     search_tool = WeChatSearchTool()
     inputs = {
         "topic": topic,

@@ -63,13 +63,6 @@ with st.sidebar:
         format_func=lambda d: f"最近 {d} 天" if d > 1 else "今天",
     )
 
-    provider = st.selectbox(
-        "🧠 LLM 模型",
-        options=["deepseek","siliconflow"],
-        index=0,
-        format_func=lambda p: "SiliconFlow (Qwen2.5-7B)" if p == "siliconflow" else "DeepSeek (deepseek-chat)",
-    )
-
     st.markdown("---")
 
     start_btn = st.button(
@@ -126,7 +119,6 @@ if start_btn:
                     topic=topic.strip(),
                     max_articles=max_articles,
                     days_back=days_back,
-                    provider=provider,
                 )
 
                 status.update(
