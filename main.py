@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from crewai import Crew, Process
 from agents import create_llm, create_agents, create_auditor, create_fact_checker
-from tasks import create_tasks, create_fact_check_task, create_audit_task
+from tasks import create_tasks, create_report_task, create_fact_check_task, create_audit_task
 from tools import WeChatSearchTool
 
 
@@ -33,10 +33,12 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7, provider: st
     search_tool = WeChatSearchTool()
 
     collector, analyzer, reporter = create_agents(search_tool, llm)
-    collect_task, analyze_task, report_task = create_tasks(collector, analyzer, reporter)
+    collect_task, analyze_task = create_tasks(collector, analyzer)
 
     fact_checker = create_fact_checker(llm)
     fact_check_task = create_fact_check_task(fact_checker, collect_task, analyze_task)
+
+    report_task = create_report_task(reporter, collect_task, analyze_task, fact_check_task)
 
     auditor = create_auditor(llm)
     audit_task = create_audit_task(auditor, collect_task, analyze_task, fact_check_task, report_task)

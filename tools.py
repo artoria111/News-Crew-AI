@@ -56,16 +56,27 @@ class WeChatSearchTool(BaseTool):
             source_el = item.select_one(".s-p .all-time-y2")
             source = self._clean(source_el.get_text(strip=True)) if source_el else "未知公众号"
 
-            # date from JS timestamp
+            # date from JS timestamp — filter out articles older than 30 days
             date = ""
             s2_el = item.select_one(".s-p .s2")
             if s2_el:
-                script = s2_el.get_text(strip=True) if s2_el else ""
-                ts_match = re.search(r"timeConvert\('(\d+)'\)", script)
+                script_el = s2_el.select_one("script")
+                script_text = script_el.get_text(strip=True) if script_el else ""
+                ts_match = re.search(r"timeConvert\('(\d+)'\)", script_text)
                 if ts_match:
-                    from datetime import datetime
+                    from datetime import datetime, timedelta
                     try:
-                        dt = datetime.fromtimestamp(int(ts_match.group(1)))
+                        ts = int(ts_match.group(1))
+                        # handle millisecond timestamps
+                        if ts > 1e12:
+                            ts = ts // 1000
+                        dt = datetime.fromtimestamp(ts)
+                        # sanity check: reject dates before 2025 or after 2030
+                        if dt.year < 2025 or dt.year > 2030:
+                            continue
+                        # reject articles older than 30 days
+                        if (datetime.now() - dt) > timedelta(days=30):
+                            continue
                         date = dt.strftime("%Y-%m-%d")
                     except Exception:
                         pass
