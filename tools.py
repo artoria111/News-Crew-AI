@@ -84,8 +84,20 @@ class WeChatSearchTool(BaseTool):
             # snippet
             snippet_el = item.select_one(".txt-info")
             snippet = self._clean(snippet_el.get_text(strip=True)) if snippet_el else ""
-            # clean leading dot
             snippet = re.sub(r"^·\s*", "", snippet)[:300]
+
+            # quality filter — skip low-substance articles
+            spam_keywords = [
+                "讲座预告", "讲座通知", "活动预告", "活动报名", "会议通知",
+                "报名开始", "扫码报名", "免费领取", "限时优惠", "领券",
+                "招聘公告", "招聘启事", "培训通知", "开班通知",
+                "直播预告", "直播预约", "今晚直播",
+                "有奖转发", "转发抽奖", "投票",
+                "停水通知", "停电通知", "放假通知", "天气周报","一文读懂"
+            ]
+            check_text = title + " " + snippet
+            if any(kw in check_text for kw in spam_keywords):
+                continue
 
             results.append(
                 f"Title: {title}\n"
