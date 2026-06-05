@@ -119,5 +119,3 @@ streamlit run app.py
 ## 📄 License
 
 MIT License.
-
-注：Live2D 引擎及相关模型版权归属于 Live2D Inc. 及原画师/模型师，请遵循官方最终用户许可协议。
