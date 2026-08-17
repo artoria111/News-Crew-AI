@@ -220,8 +220,10 @@ class BochaSearchTool(BaseTool):
         # extract any explicit date mentioned in title/snippet and reject if it is
         # more than 90 days older than the page update date.
         _DATE_PATTERNS = [
-            re.compile(r"(20\d{2})[-/](\d{1,2})[-/](\d{1,2})"),  # 2026-03-19 / 2026/3/19
-            re.compile(r"(20\d{2})年(\d{1,2})月(\d{1,2})日"),      # 2026年3月19日
+            re.compile(
+                r"(20\d{2})[-/](\d{1,2})[-/](\d{1,2})"
+            ),  # 2026-03-19 / 2026/3/19
+            re.compile(r"(20\d{2})年(\d{1,2})月(\d{1,2})日"),  # 2026年3月19日
         ]
 
         def _extract_mentioned_dates(text: str) -> list:

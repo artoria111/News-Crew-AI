@@ -2,7 +2,7 @@ import re
 
 import streamlit as st
 
-from main import ConfigError, run_crew
+from main import ConfigError, LLM_PROVIDER, SEARCH_PROVIDER, run_crew
 
 
 def clean_md(text: str) -> str:
@@ -59,7 +59,7 @@ with st.sidebar:
         min_value=1,
         max_value=20,
         value=5,
-        help="从博查搜索结果中筛选的文章数量",
+        help=f"从 {SEARCH_PROVIDER} 结果中筛选的文章数量",
     )
 
     days_back = st.selectbox(
@@ -99,7 +99,7 @@ with col1:
     )
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("数据源: 博查全网搜索 (Bocha)")
+    st.caption(f"数据源: {SEARCH_PROVIDER}")
 
 st.markdown("---")
 
@@ -183,4 +183,4 @@ if start_btn:
 
 # ── footer ───────────────────────────────────────────────
 st.markdown("---")
-st.caption("Powered by CrewAI + Streamlit | 搜索: Bocha | LLM: DeepSeek")
+st.caption(f"Powered by CrewAI + Streamlit | 搜索: {SEARCH_PROVIDER.split(' ')[0]} | LLM: {LLM_PROVIDER}")

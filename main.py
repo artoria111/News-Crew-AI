@@ -1,7 +1,7 @@
 import io
 import os
 import re
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 
 from crewai import Crew, Process, Task
@@ -21,7 +21,29 @@ from tasks import (
     create_report_task,
     create_tasks,
 )
-from tools import WeChatSearchTool
+from tools import BochaSearchTool
+
+# UI display helpers — built from the tools/llm that run_crew() actually uses.
+TOOL_CLASS = BochaSearchTool
+SEARCH_PROVIDER = "博查全网搜索"
+
+
+def _llm_provider_label() -> str:
+    base = os.getenv("LLM_BASE_URL", "").lower()
+    model = os.getenv("LLM_MODEL_NAME", "LLM")
+    vendors = [
+        ("deepseek.com", "DeepSeek"),
+        ("minimaxi.com", "MiniMax"),
+        ("siliconflow.cn", "SiliconFlow"),
+        ("openai.com", "OpenAI"),
+        ("bigmodel.cn", "智谱 GLM"),
+        ("dashscope.aliyuncs.com", "通义千问"),
+    ]
+    vendor = next((v for k, v in vendors if k in base), model)
+    return f"{vendor} ({model})"
+
+
+LLM_PROVIDER = _llm_provider_label()
 
 
 class ConfigError(Exception):
@@ -54,7 +76,7 @@ def _validate_report(report: str, query: str) -> str:
 
     # Re-run search to get real URLs
     try:
-        tool = WeChatSearchTool()
+        tool = TOOL_CLASS()
         raw = tool._run(query)
     except Exception:
         return report + "\n\n> ⚠️ URL 验证失败，请检查参考来源。"
@@ -100,7 +122,7 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
     log_file = open(log_path, "w", encoding="utf-8")
 
     llm = create_llm()
-    search_tool = WeChatSearchTool()
+    search_tool = TOOL_CLASS()
     inputs = {
         "topic": topic,
         "max_articles": str(max_articles),
@@ -136,9 +158,17 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
 
 
 def _run_crew_pipeline(
-    topic, max_articles, days_back, inputs,
-    collector, analyzer, reporter, collect_task, analyze_task,
-    fact_checker, auditor,
+    topic,
+    max_articles,
+    days_back,
+    inputs,
+    collector,
+    analyzer,
+    reporter,
+    collect_task,
+    analyze_task,
+    fact_checker,
+    auditor,
 ):
 
     # ── Phase 1: collect → analyze → fact-check ────────────
@@ -156,10 +186,16 @@ def _run_crew_pipeline(
     collect_output = (
         result1.tasks_output[0].raw if len(result1.tasks_output) > 0 else ""
     )
-    if re.search(r"共收集\s*0\s*篇|No WeChat articles found|共收集 0", collect_output):
+    if (
+        re.search(
+            r"共收集\s*0\s*篇|No (WeChat|web) articles found|共收集 0",
+            collect_output,
+        )
+        or "未找到相关" in collect_output
+    ):
         raise ConfigError(
-            f"搜狗微信搜索未返回关于「{topic}」的有效文章。"
-            f"请尝试: 1) 换一个更通用的关键词 2) 稍后重试 3) 检查网络连接"
+            f"{SEARCH_PROVIDER}未返回关于「{topic}」的有效文章。"
+            f"请尝试: 1) 换一个更通用的关键词 2) 稍后重试 3) 检查网络连接或 API Key"
         )
 
     # ── Phase 2a: generate initial report ───────────────────
