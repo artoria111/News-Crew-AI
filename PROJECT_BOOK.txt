@@ -1,0 +1,406 @@
+# News Crew AI — 项目书 & 面试备战指南
+
+## 一、项目概述
+
+基于 **CrewAI** 框架构建的五 Agent 新闻智能分析系统。通过搜狗微信搜索获取多源新闻，五个专业化 AI Agent 顺序协作，经搜集→分析→事实核查→报告→审计流水线，自动生成结构化的深度新闻分析报告，并以 Streamlit Web 前端呈现。
+
+**核心价值**：展示了 AI Agent 系统从工具设计、任务编排、质量控制到前端交付的完整工程能力。
+
+---
+
+## 二、核心知识点体系
+
+### 2.1 CrewAI 框架原理
+
+#### Agent（智能体）
+
+```
+Agent = Role + Goal + Backstory + Tools + LLM
+```
+
+- **Role**: 定义 Agent 的身份和职责边界（如"资深新闻策展人"）
+- **Goal**: Agent 要达成的目标，驱动其行为方向
+- **Backstory**: 背景故事，影响 Agent 的语气、专业水平和决策风格
+- **Tools**: Agent 可调用的外部工具集合
+- **LLM**: 底层大语言模型，本项目中通过 `LLM()` 类统一封装
+
+**关键概念**：CrewAI 的 Agent 不是简单的 prompt 模板，而是通过 Role/Goal/Backstory 构造一个完整的"角色人格"，使 LLM 在该人格约束下做出一致的行为。
+
+**面试常问**：
+> Q: Agent 的 Role 和 Goal 有什么区别？
+> A: Role 定义"我是谁"，Goal 定义"我要做到什么"。Role 影响语气和专业视角，Goal 驱动具体的任务执行方向。两者共同构成 Agent 的行为边界。
+
+> Q: 为什么 Agent 需要 Backstory？
+> A: Backstory 提供了角色深度。两个相同 Role+Goal 的 Agent，不同的 Backstory 会导致不同的分析风格和关注点。它是实现"专业化分工"的关键。
+
+#### Task（任务）
+
+```
+Task = Description + Expected Output + Agent + Context
+```
+
+- **Description**: 详细的任务指令，可使用 `{变量}` 模板
+- **Expected Output**: 明确预期输出格式，帮助 Agent 自我评估
+- **Agent**: 执行此任务的 Agent
+- **Context**: 前置 Task 列表，Agent 可访问其输出
+
+**面试常问**：
+> Q: Task 的 Context 机制是如何工作的？
+> A: Context 是 CrewAI 的数据流核心。当 Task B 的 `context=[Task A]` 时，Task A 的输出会被自动注入到 Task B 的 Agent prompt 中。这实现了 Agent 间的信息传递，无需手动管理数据流。
+
+> Q: Context 和直接在 Description 里写有什么区别？
+> A: Context 传递的是完整的、未经二次加工的前置输出，保留了原始细节。直接写在 Description 里则可能存在信息丢失或人类偏见。
+
+#### Crew（工作组）
+
+```
+Crew = Agents + Tasks + Process
+```
+
+- **Process.sequential**: 顺序执行，前一个 Task 完成后才开始下一个
+- **Process.hierarchical**: 层次化执行，有一个 Manager Agent 负责分配和调度
+
+**本项目选择 Sequential 的理由**：新闻分析是线性流程（搜集→分析→核查→报告→审计），不需要动态调度。Hierarchical 会引入额外的 Manager Agent，增加 token 消耗和调度不确定性。
+
+#### LLM 封装
+
+CrewAI 的 `LLM()` 类支持通过 `model="openai/模型名"` 前缀兼容任意 OpenAI 格式 API：
+
+```python
+LLM(
+    model="openai/deepseek-chat",          # openai/ 前缀表示兼容格式
+    base_url="https://api.deepseek.com/v1", # API 地址
+    api_key="sk-xxx",                       # API Key
+    temperature=0.3,                         # 低温度 → 确定性输出
+    max_tokens=8192,                         # 最大输出长度
+)
+```
+
+---
+
+### 2.2 多 Agent 系统设计模式
+
+#### 流水线模式（Pipeline Pattern）
+
+本项目采用线性流水线，每个 Agent 是流水线上的一个处理节点：
+
+```
+输入 → Agent1 → Agent2 → Agent3 → Agent4 → Agent5 → 输出
+```
+
+**适用场景**：任务有明确的顺序依赖关系，后一步依赖前一步的输出。
+
+**设计要点**：
+- 每个节点的输入输出格式要标准化（本项目用自然语言描述 expected_output）
+- Context 链要完整，防止信息在传递中丢失
+- 错误要在早期节点发现和处理
+
+#### 质量控制模式（Quality Gate Pattern）
+
+```
+Phase 1: 生产（收集+分析+核查）
+    ↓
+Phase 2a: 生成初版报告
+    ↓
+Phase 2b: 强制修正轮（fix + recheck）
+    ↓ (错误 ≥ 3?)
+Phase 2c: 第二修正轮
+    ↓
+Phase 3: 独立审计
+```
+
+**关键设计**：
+- 事实核查（Stage 3）是质量门禁
+- 修正轮强制执行，不依赖 Agent 自觉
+- 独立审计（Stage 5）是最终防线
+- 阈值控制（<3 通过，≥3 再修）平衡质量和成本
+
+**面试常问**：
+> Q: 为什么不用一个 Agent 同时做分析和核查？
+> A: 独立核查是质量控制的基础。让同一个 Agent 核查自己的工作就像让学生自己批改试卷——会有盲区。独立 Agent 才能发现系统性偏差。
+
+> Q: 修正轮会不会无限循环？
+> A: 不会。最多两轮修正（强制轮 + 条件轮），第二轮后无论结果如何都进入审计。实际运行中，第一轮修正解决大部分问题，第二轮只在极端情况下触发。
+
+#### 工具赋能的 Agent 模式
+
+只有 Stage 1 的 Collector Agent 有工具（WeChatSearchTool）。其他 Agent 只做推理和分析。
+
+**设计理由**：
+- 工具调用消耗 token（工具描述 + 工具输出都计入上下文）
+- 搜索之后的分析/核查/报告工作是对已有文本的处理，不需要外部工具
+- 每多一个工具，Agent 的行为就多一个"分叉"路径，增加不确定性
+
+---
+
+### 2.3 Prompt Engineering
+
+#### 约束型 Prompt 设计
+
+本项目大量使用"硬约束"来控制 LLM 输出：
+
+```
+HARD CONSTRAINTS:
+- 最少 3 个不同信源
+- 单一信源占比 ≤ 50%
+- 不遗漏任何匹配文章
+- 绝对禁止编造日期
+```
+
+**设计原则**：
+- 明确告诉 LLM "不能做什么"比"应该做什么"更有效
+- 用加粗、大写、编号来建立视觉层级
+- "MANDATORY"、"CRITICAL"、"绝对禁止" 等关键词提升注意力权重
+
+#### 结构化输出控制
+
+通过 `expected_output` 字段定义输出格式，引导 LLM 自我检查：
+
+```python
+expected_output=(
+    "A complete Chinese markdown report with exactly 5 sections: "
+    "执行摘要, 核心主题, 风险与挑战, 关键结论, 参考来源."
+)
+```
+
+#### 反幻觉策略
+
+LLM 在缺乏信息时倾向于"编造"。本项目多层防御：
+
+1. **工具层**：日期只能从 JS 时间戳解析，无法解析就留空，绝不推断
+2. **Task 层**：明确写"宁可留空也绝不编造"
+3. **核查层**：Fact Checker 逐条对照原文，标记所有无来源声明
+4. **后处理层**：`_validate_report()` 用代码扫描 example.com 占位符
+
+**面试常问**：
+> Q: 如何防止 LLM 编造信息？
+> A: 多层防御。第一，prompt 中明确禁止编造并给出"宁可留空"的逃生口（LLM 编造通常是因为觉得"必须给出答案"）。第二，后处理代码扫描常见编造模式（如 example.com 占位符）。第三，独立的事实核查 Agent 逐条验证关键声明。
+
+---
+
+### 2.4 自定义 CrewAI 工具开发
+
+#### BaseTool 子类化
+
+```python
+class WeChatSearchTool(BaseTool):
+    name: str = "WeChat News Search"
+    description: str = "Search WeChat public account articles..."
+
+    def _run(self, query: str) -> str:
+        ...
+```
+
+三个关键属性：
+- `name`: Agent 通过名称识别和调用工具
+- `description`: Agent 理解何时、如何调用工具的依据
+- `_run()`: 工具的实际执行逻辑
+
+#### 工具设计原则
+
+1. **输入简单**：只接收一个字符串参数（CrewAI 限制）
+2. **输出结构化**：用分隔符 `---` 分割条目，每个条目有 `Key: Value` 格式
+3. **错误友好**：返回描述性错误信息而非抛异常（Agent 可以处理文本但无法处理异常）
+4. **内置过滤**：在工具层做质量过滤（日期、低质关键词），减少 Agent 处理的噪音
+
+#### 搜狗微信搜索的技术实现
+
+```
+用户查询 → HTTP GET news.sogou.com/weixin
+         → BeautifulSoup 解析 HTML
+         → 提取 .txt-box(标题/链接/来源)
+         → 解析 <script>timeConvert()</script> 获取日期
+         → 日期校验(30天过滤 + 毫秒时间戳降级)
+         → 质量过滤(滤除讲座预告/广告/招聘)
+         → 结构化文本输出
+```
+
+**技术难点**：
+- 搜狗返回的日期是 JS 时间戳，存储在 `<script>document.write(timeConvert('1780641120'))</script>` 中
+- BeautifulSoup 默认跳过 `<script>` 内容，需要 `select_one("script").get_text()` 才能提取
+- 部分时间戳可能是毫秒级（>1e12），需要自动降级
+
+---
+
+### 2.5 Streamlit 前端
+
+#### 会话状态管理
+
+```python
+st.session_state.history = []      # 历史报告列表
+st.session_state.last_report = None # 当前展示的报告
+```
+
+Streamlit 的 `session_state` 是字典，用于在页面刷新/重渲染间保持状态。本项目用其实现：
+- 报告历史记录（侧栏可切换回看）
+- 避免重复运行后丢失之前的结果
+
+#### 组件使用
+
+- `st.status()`: 展示 5 阶段执行进度
+- `st.markdown()`: 渲染最终报告（Markdown → HTML）
+- `st.expander()`: 折叠审计评分卡
+- `st.download_button()`: 下载报告/审计文件
+- `st.sidebar`: 配置参数面板
+- `st.markdown("...<style>...", unsafe_allow_html=True)`: 全局 CSS
+
+---
+
+### 2.6 Python 工程实践
+
+#### 环境变量管理
+
+`.env` + `python-dotenv` + `.env.example` 模板。敏感信息不入库。
+
+#### 异常处理
+
+自定义 `ConfigError` 异常类，在 Streamlit 层捕获并以友好方式展示。
+
+#### 正则后处理
+
+```python
+def _validate_report(report: str, query: str) -> str:
+    # 扫描 example.com 占位符
+    # 重新调用工具获取真实 URL
+    # 追加系统补充的参考来源
+```
+
+用确定性的 Python 代码修复 LLM 的不确定性输出。
+
+---
+
+## 三、面试高频问题 & 参考答案
+
+### Q1: 为什么选 CrewAI 而不是 LangChain？
+
+**参考答案**：
+- CrewAI 专注于 Agent 协作，LangChain 更偏底层链式调用
+- CrewAI 的 Agent/Task/Crew 抽象层级更高，开发效率高
+- CrewAI 的 Process（Sequential/Hierarchical）开箱即用
+- LangChain 更灵活但需要更多胶水代码
+- 对于"多 Agent 流水线"这种场景，CrewAI 天然适配
+
+### Q2: 你的系统中 Agent 之间如何通信？
+
+**参考答案**：
+通过 CrewAI 的 Task Context 机制。Task B 设置 `context=[Task A]` 后，Task A 的输出会被自动注入到 Task B 的 Agent prompt 中。这是一种"发布-订阅"模式——前置 Task 发布输出，后置 Task 订阅它。优点是无需手动管理数据流，缺点是 Context 链过长时信息可能衰减。
+
+我通过两个手段缓解衰减问题：
+1. Reporter 的 Context 同时包含三个前置 Task（collect + analyze + fact_check），直接访问原始数据
+2. 事实核查 Agent 逐条对照原文和报告，成为信息衰减的"防火墙"
+
+### Q3: 五个 Agent 各自用什么模型？为什么？
+
+**参考答案**：
+所有 Agent 共用同一个 LLM 实例。这是基于实际验证的选择：
+- 不同 Agent 的工作负载差异不大（都是文本处理）
+- 统一 temperature=0.3 保证确定性
+- 分用不同模型会增加配置复杂度，对效果提升有限
+- 如果要做差异化，Fact Checker 可以用更低 temperature（0.1）以保证更严格的核查
+
+### Q4: 如何评估 Agent 系统的质量？
+
+**参考答案**：
+三个层面：
+1. **系统级**：通过 Auditor Agent 的 6 维度加权评分自动评估
+2. **数据级**：Fact Checker 的错误计数（编造率、遗漏率）
+3. **人工级**：定期人工抽查报告，对比原始文章验证准确性
+
+我的系统用加权评分而非等权评分，因为有些维度（如信源可信度）比另一些（如分析深度）更重要。这是从实际运行反馈中调出来的。
+
+### Q5: 如果搜索结果为空怎么办？
+
+**参考答案**：
+工具层有两级容错：1) 自动重试一次（2s 间隔）2) 解析失败返回描述性错误。如果两次都失败，Phase 1 结束后检测 "共收集 0 篇"，抛出 `ConfigError` 并提示用户换关键词或稍后重试。不会让空结果进入后续流程，节省 token。
+
+### Q6: 如何处理 LLM 输出的不确定性？
+
+**参考答案**：
+五层防御：
+1. Prompt 约束（明确禁止、格式规范）
+2. Expected Output 引导自我检查
+3. Fact Checker 逐条验证
+4. 强制修正轮（错误 ≥1 就触发）
+5. Python 后处理（`_validate_report()` 修复占位符 URL）
+
+不是依赖某一个环节做好，而是每层兜底。
+
+### Q7: 你的系统有什么局限性？
+
+**参考答案**（诚实回答，展示批判性思维）：
+1. **搜狗依赖**：搜索源单一，如果搜狗限流或改版，整个系统不可用
+2. **线性流水线**：不支持并行或分支，适合新闻分析但不适合更复杂的任务
+3. **Token 消耗**：5 Agent + 修正轮 ≈ 较高 token 消耗，对成本敏感场景不友好
+4. **日期精度**：搜狗微信的时间戳只精确到天，无法做小时级时效分析
+5. **无记忆/增量更新**：每次都是全新分析，不能基于历史结果做增量
+
+### Q8: 如果要扩展到生产环境，需要做什么？
+
+**参考答案**：
+1. **多搜索源**：增加备用搜索引擎（百度 API、Bing API 等）
+2. **异步流水线**：各 Phase 间可并行化
+3. **缓存层**：相同主题搜索结果缓存，避免重复请求
+4. **监控告警**：Token 消耗、错误率、空结果率的实时监控
+5. **A/B 测试**：不同 prompt 策略的效果对比
+6. **持久化**：数据库存储历史报告，支持搜索和对比
+7. **API 化**：FastAPI 封装，支持外部调用
+
+---
+
+## 四、架构决策记录 (ADR)
+
+| 决策 | 选择 | 备选 | 理由 |
+|------|------|------|------|
+| Agent 框架 | CrewAI | LangChain/AutoGen | 多 Agent 协作抽象层级高 |
+| 流水线模式 | Sequential | Hierarchical | 线性依赖，无需动态调度 |
+| 搜索源 | 搜狗微信 | RSS/百度爬虫 | 国内可访问，信源多样 |
+| 前端 | Streamlit | Flask+Gradio | 纯 Python，组件丰富 |
+| 模型接口 | OpenAI 兼容格式 | 厂商原生 API | 一键切换厂商 |
+| 修正策略 | 1+1轮(强制+条件) | 固定轮/无修正 | 平衡质量与成本 |
+
+---
+
+## 五、关键代码片段解读
+
+### 5.1 条件修正循环
+
+这是本系统最核心的工程创新——不依赖 LLM 自觉，用控制流保证质量：
+
+```python
+# Phase 2a: 生成初版
+report = generate_initial_report()
+
+# Phase 2b: 强制修正轮（总是执行）
+fix_task  = inject_errors_into_reporter(fc_output)
+recheck   = verify_fixes()
+errors    = count_remaining_errors(recheck)
+
+# Phase 2c: 条件第二修正（仅严重时）
+if errors >= 3:
+    fix_again()
+```
+
+### 5.2 工具质量过滤
+
+在数据入口做过滤，比在 Agent 层过滤更可靠：
+
+```python
+spam_keywords = ["讲座预告", "活动报名", "免费领取", "扫码报名", ...]
+if any(kw in title + snippet for kw in spam_keywords):
+    continue  # 不让低质文章进入后续流程
+```
+
+---
+
+## 六、技术栈总结
+
+| 层级 | 技术 | 版本 |
+|------|------|------|
+| Agent 框架 | CrewAI | ≥0.80 |
+| LLM 接口 | OpenAI 兼容格式 | — |
+| Web 前端 | Streamlit | ≥1.50 |
+| HTML 解析 | BeautifulSoup4 | ≥4.11 |
+| RSS 解析 | feedparser | ≥6.0 |
+| HTTP | requests | ≥2.28 |
+| 环境变量 | python-dotenv | ≥1.0 |
+| 语言 | Python | ≥3.12 |

@@ -1,10 +1,26 @@
+import io
 import os
 import re
+from contextlib import redirect_stdout, redirect_stderr
+from datetime import datetime
 
-from dotenv import load_dotenv
 from crewai import Crew, Process, Task
-from agents import create_llm, create_agents, create_auditor, create_fact_checker
-from tasks import create_tasks, create_report_task, create_fact_check_task, create_audit_task
+from dotenv import load_dotenv
+
+from agents import (
+    create_analyzer,
+    create_auditor,
+    create_collector,
+    create_fact_checker,
+    create_llm,
+    create_reporter,
+)
+from tasks import (
+    create_audit_task,
+    create_fact_check_task,
+    create_report_task,
+    create_tasks,
+)
 from tools import WeChatSearchTool
 
 
@@ -18,6 +34,9 @@ def validate_env():
         raise ConfigError("缺少 LLM_API_KEY，请在 .env 文件中配置。")
 
 
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+
+
 def _count_errors(fact_check_output: str) -> int:
     """Parse fact-check output to count discovered errors."""
     errors = re.findall(r"错误陈述", fact_check_output)
@@ -27,7 +46,9 @@ def _count_errors(fact_check_output: str) -> int:
 
 def _validate_report(report: str, query: str) -> str:
     """Post-process: fix placeholder URLs and append real reference list if needed."""
-    has_placeholder = bool(re.search(r"example\.com|example\.org|placeholder", report, re.I))
+    has_placeholder = bool(
+        re.search(r"example\.com|example\.org|placeholder", report, re.IGNORECASE)
+    )
     if not has_placeholder:
         return report
 
@@ -69,6 +90,15 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
     load_dotenv()
     validate_env()
 
+    # capture all stdout/stderr (CrewAI verbose output, llm logs, etc.)
+    # to a per-run log file so every test run is inspectable after the fact.
+    os.makedirs(LOG_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_topic = re.sub(r"[^\w\-]+", "_", topic)[:30] or "run"
+    log_path = os.path.join(LOG_DIR, f"crew_{safe_topic}_{stamp}.log")
+    log_buffer = io.StringIO()
+    log_file = open(log_path, "w", encoding="utf-8")
+
     llm = create_llm()
     search_tool = WeChatSearchTool()
     inputs = {
@@ -77,10 +107,39 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
         "days_back": str(days_back),
     }
 
-    collector, analyzer, reporter = create_agents(search_tool, llm)
+    collector = create_collector(search_tool, llm)
+    analyzer = create_analyzer(llm)
+    reporter = create_reporter(llm)
     collect_task, analyze_task = create_tasks(collector, analyzer)
     fact_checker = create_fact_checker(llm)
     auditor = create_auditor(llm)
+
+    try:
+        with redirect_stdout(log_buffer), redirect_stderr(log_buffer):
+            return _run_crew_pipeline(
+                topic=topic,
+                max_articles=max_articles,
+                days_back=days_back,
+                inputs=inputs,
+                collector=collector,
+                analyzer=analyzer,
+                reporter=reporter,
+                collect_task=collect_task,
+                analyze_task=analyze_task,
+                fact_checker=fact_checker,
+                auditor=auditor,
+            )
+    finally:
+        log_file.write(log_buffer.getvalue())
+        log_file.close()
+        print(f"\n📝 运行日志已保存: {log_path}")
+
+
+def _run_crew_pipeline(
+    topic, max_articles, days_back, inputs,
+    collector, analyzer, reporter, collect_task, analyze_task,
+    fact_checker, auditor,
+):
 
     # ── Phase 1: collect → analyze → fact-check ────────────
     fact_check_task = create_fact_check_task(fact_checker, collect_task, analyze_task)
@@ -94,7 +153,9 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
     fc_output = result1.tasks_output[2].raw if len(result1.tasks_output) > 2 else ""
 
     # ── Check: abort if no articles were collected ──────────
-    collect_output = result1.tasks_output[0].raw if len(result1.tasks_output) > 0 else ""
+    collect_output = (
+        result1.tasks_output[0].raw if len(result1.tasks_output) > 0 else ""
+    )
     if re.search(r"共收集\s*0\s*篇|No WeChat articles found|共收集 0", collect_output):
         raise ConfigError(
             f"搜狗微信搜索未返回关于「{topic}」的有效文章。"
@@ -102,7 +163,9 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
         )
 
     # ── Phase 2a: generate initial report ───────────────────
-    report_task = create_report_task(reporter, collect_task, analyze_task, fact_check_task)
+    report_task = create_report_task(
+        reporter, collect_task, analyze_task, fact_check_task
+    )
     init_crew = Crew(
         agents=[reporter],
         tasks=[report_task],
@@ -110,7 +173,9 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
         verbose=True,
     )
     init_result = init_crew.kickoff(inputs=inputs)
-    report = init_result.tasks_output[0].raw if len(init_result.tasks_output) > 0 else ""
+    report = (
+        init_result.tasks_output[0].raw if len(init_result.tasks_output) > 0 else ""
+    )
 
     # ── Phase 2b: mandatory correction round ────────────────
     if "✅ 所有" in fc_output and "❌" not in fc_output:
@@ -175,7 +240,11 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
                 verbose=True,
             )
             result2b = fix2_crew.kickoff()
-            report = result2b.tasks_output[0].raw if len(result2b.tasks_output) > 0 else report
+            report = (
+                result2b.tasks_output[0].raw
+                if len(result2b.tasks_output) > 0
+                else report
+            )
             audited_report_task = fix_task2
         else:
             audited_report_task = fix_task

@@ -5,7 +5,7 @@ def create_tasks(collector, analyzer):
     collect_task = Task(
         description=(
             "Search for the latest news articles about the topic: {topic}.\n"
-            "Use WeChatSearchTool once with the topic as the query.\n\n"
+            "Use BochaSearchTool once with the topic as the query.\n\n"
             "HARD CONSTRAINTS:\n"
             "- Select up to {max_articles} most relevant articles from the last {days_back} days.\n"
             "- **最少 3 个不同信源** — 单一信源占比 ≤ 50%\n"
@@ -14,7 +14,7 @@ def create_tasks(collector, analyzer):
             "若未返回，标注\"日期未知\"。**绝对禁止编造或推断日期。**\n\n"
             "OUTPUT FORMAT:\n"
             "- 顶部: \"共收集 X 篇文章，来自 Y 个信源\" + 信源分布表\n"
-            "- 每条必须包含: 编号, 标题, URL, 信源名称(微信公众号), 发布日期, 原文摘要, 1-2条要点\n"
+            "- 每条必须包含: 编号, 标题, URL, 信源名称(网站名), 发布日期, 原文摘要, 1-2条要点\n"
             "- 若少于 3 个信源或某来源 > 50%，顶部标注 \"⚠️ 信源多样性不足\""
         ),
         expected_output=(
@@ -90,7 +90,7 @@ def create_report_task(reporter, collect_task, analyze_task, fact_check_task):
             "编号列表，格式: `1. [标题](URL) — 公众号, YYYY-MM-DD`\n\n"
             "报告末尾固定加上:\n"
             "`---`\n"
-            "`> ⚠️ 本报告由 AI 自动生成，基于搜狗微信搜索的公开文章，仅供信息参考。`\n\n"
+            "`> ⚠️ 本报告由 AI 自动生成，基于博查全网搜索的公开网页，仅供信息参考。`\n\n"
             "Markdown 格式，中文撰写。"
         ),
         expected_output=(
@@ -170,11 +170,11 @@ def create_audit_task(auditor, collect_task, analyze_task, fact_check_task, repo
             "   仅关注实质信息是否丢失或严重扭曲（如数据错误、事件张冠李戴）。\n"
             "   URL 是否为真实链接（非 example.com）。\n\n"
             "## 评分注意事项\n"
-            "- **日期缺失不扣分** — 搜狗微信的限制，非 Agent 问题\n"
-            "- **日期来自搜索结果就是正确的** — 搜索结果中返回的日期已经过工具校验"
-            "（30天内），不要质疑日期的准确性\n"
-            "- **搜狗微信跳转链接是合法的 URL** — `weixin.sogou.com/link?url=...` "
-            "是搜狗的标准跳转格式，可以正常访问原文，不算占位符或无效链接\n"
+            "- **日期缺失不扣分** — 搜索工具的限制，非 Agent 问题\n"
+            "- **日期来自搜索结果就是正确的** — 搜索结果中返回的日期已经过工具"
+            "按设定时间范围过滤，不要质疑日期的准确性\n"
+            "- **搜索结果中的 URL 即真实链接** — 博查返回的是目标网站的直链，"
+            "可以直接访问原文，不算占位符或无效链接\n"
             "- **不要无中生有** — 如果报告中确实引用了文章并提供了 URL，"
             "就不要声称\"报告未引用任何文章\"\n"
             "- **核心主题要具体** — 空洞概括 < 具体叙事\n"

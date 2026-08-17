@@ -1,10 +1,10 @@
 # 📰 News Crew AI
 
-基于 [CrewAI](https://crewai.com) 的智能新闻搜集、分析、核查与报告系统。通过搜狗微信搜索获取多源新闻，五个 AI Agent 流水线协作，自动生成结构化的深度分析报告。
+基于 [CrewAI](https://crewai.com) 的智能新闻搜集、分析、核查与报告系统。通过博查全网搜索获取多源新闻，五个 AI Agent 流水线协作，自动生成结构化的深度分析报告。
 
 ## ✨ 功能特性
 
-- **多源新闻搜集** — 搜狗微信搜索覆盖全微信公众号生态，单次搜索可命中数十个不同信源
+- **全网新闻搜集** — 博查搜索覆盖中文全网网页，支持时效过滤 (天/周/月)，单次搜索命中多个不同网站信源
 - **五 Agent 流水线** — 搜集 → 分析 → 事实核查 → 报告 → 审计，全自动协作
 - **条件修正循环** — 事实核查发现错误时自动触发修正轮，确保报告准确性
 - **质量过滤** — 自动筛除讲座预告、广告、招聘等低质文章
@@ -18,7 +18,7 @@
        ▼
 ┌─────────────────────────────────────────────┐
 │  Stage 1: News Collector (搜集员)            │
-│  工具: 搜狗微信搜索                          │
+│  工具: 博查全网搜索 (Bocha Web Search)        │
 │  输出: 结构化文章列表 (标题/URL/来源/日期/摘要) │
 ├─────────────────────────────────────────────┤
 │  Stage 2: News Analyzer (分析员)             │
@@ -66,9 +66,11 @@ pip install -r requirements.txt
 LLM_API_KEY=sk-your-key
 LLM_BASE_URL=https://api.deepseek.com/v1
 LLM_MODEL_NAME=deepseek-chat
+BOCHA_API_KEY=sk-your-bocha-key
+BOCHA_BASE_URL=https://api.bochaai.com/v1
 ```
 
-只需改三个变量即可适配任意厂商。常用示例：
+只需改三个变量即可适配任意 LLM 厂商；`BOCHA_API_KEY` 在 [博查开放平台](https://open.bochaai.com) 免费注册获取。常用示例：
 
 | 厂商 | LLM_BASE_URL | LLM_MODEL_NAME |
 |------|-------------|----------------|
@@ -93,7 +95,7 @@ streamlit run app.py
 ├── main.py             # 流水线编排 (Phase 1/2/3)
 ├── agents.py           # 5 个 Agent 定义
 ├── tasks.py            # 所有 Task 定义 + 约束规则
-├── tools.py            # 搜狗微信搜索工具
+├── tools.py            # 搜索工具 (博查全网搜索 + 搜狗微信备用)
 ├── pyproject.toml      # 依赖配置
 ├── requirements.txt    # 依赖配置
 ├── .env.example        # 环境变量模板
@@ -114,7 +116,7 @@ streamlit run app.py
 
 ## ⚠️ 免责声明
 
-本系统由 AI 自动生成报告，基于搜狗微信搜索的公开文章，仅供信息参考，不构成任何建议。报告中可能存在遗漏或偏差，请读者自行核实关键信息。
+本系统由 AI 自动生成报告，基于博查全网搜索的公开网页，仅供信息参考，不构成任何建议。报告中可能存在遗漏或偏差，请读者自行核实关键信息。
 
 ## 📄 License
 

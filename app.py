@@ -1,11 +1,14 @@
 import re
+
 import streamlit as st
-from main import run_crew, ConfigError
+
+from main import ConfigError, run_crew
 
 
 def clean_md(text: str) -> str:
     """strip raw html tags that leak into markdown rendering"""
-    return re.sub(r"<br\s*/?>", "", text, flags=re.I)
+    return re.sub(r"<br\s*/?>", "", text, flags=re.IGNORECASE)
+
 
 # ── page config ──────────────────────────────────────────
 st.set_page_config(
@@ -16,7 +19,8 @@ st.set_page_config(
 )
 
 # ── style ────────────────────────────────────────────────
-st.markdown("""
+st.markdown(
+    """
 <style>
     html { font-size: 18px; }
     .main-header { font-size: 2.2rem; font-weight: 700; margin-bottom: 0; }
@@ -26,7 +30,9 @@ st.markdown("""
     h2 { font-size: 1.6rem !important; }
     h3 { font-size: 1.3rem !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ── session state ────────────────────────────────────────
 if "history" not in st.session_state:
@@ -53,7 +59,7 @@ with st.sidebar:
         min_value=1,
         max_value=20,
         value=5,
-        help="从搜狗微信搜索结果中筛选的文章数量",
+        help="从博查搜索结果中筛选的文章数量",
     )
 
     days_back = st.selectbox(
@@ -87,10 +93,13 @@ with st.sidebar:
 col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown('<p class="main-header">📰 News Crew AI</p>', unsafe_allow_html=True)
-    st.markdown('<p class="main-subheader">智能新闻搜集 · 分析 · 事实核查 · 报告 · 审核</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="main-subheader">智能新闻搜集 · 分析 · 事实核查 · 报告 · 审核</p>',
+        unsafe_allow_html=True,
+    )
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("数据源: 搜狗微信搜索 (微信公众号)")
+    st.caption("数据源: 博查全网搜索 (Bocha)")
 
 st.markdown("---")
 
@@ -154,12 +163,15 @@ if start_btn:
 
                 # save to history
                 from datetime import datetime
-                st.session_state.history.append({
-                    "topic": topic,
-                    "time": datetime.now().strftime("%H:%M"),
-                    "report": report,
-                    "audit": audit,
-                })
+
+                st.session_state.history.append(
+                    {
+                        "topic": topic,
+                        "time": datetime.now().strftime("%H:%M"),
+                        "report": report,
+                        "audit": audit,
+                    }
+                )
                 st.session_state.last_report = report
                 st.session_state.last_audit = audit
                 st.session_state.last_topic = topic
@@ -171,4 +183,4 @@ if start_btn:
 
 # ── footer ───────────────────────────────────────────────
 st.markdown("---")
-st.caption("Powered by CrewAI + Streamlit | LLM: SiliconFlow / DeepSeek")
+st.caption("Powered by CrewAI + Streamlit | 搜索: Bocha | LLM: DeepSeek")

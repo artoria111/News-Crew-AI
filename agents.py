@@ -6,28 +6,33 @@ def create_llm():
     model_name = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
     api_key = os.getenv("LLM_API_KEY")
     base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
+    # choose protocol based on URL hint: /anthropic → anthropic, otherwise openai-compatible
+    if "/anthropic" in base_url.rstrip("/"):
+        prefix, final_base = "anthropic", base_url
+    else:
+        prefix, final_base = "openai", base_url.removesuffix("/v1")
     return LLM(
-        model=f"openai/{model_name}",
-        base_url=base_url,
+        model=f"{prefix}/{model_name}",
+        base_url=final_base,
         api_key=api_key,
         temperature=0.3,
         max_tokens=8192,
     )
 
 
-def create_agents(search_tool, llm):
+def create_collector(search_tool, llm):
     collector = Agent(
         role="News Collector Specialist",
         goal=(
             "Search the web for the latest news articles about specified topics "
-            "from RSS feeds and organize them into structured collections."
+            "via the Bocha web search engine and organize them into structured collections."
         ),
         backstory=(
             "You are a seasoned digital news curator with a keen eye for "
-            "relevant, timely information. You search across 8 RSS feeds "
-            "covering Chinese and international sources, filter by topic "
-            "relevance, and organize concise article summaries. You work "
-            "in Chinese and English to ensure comprehensive results."
+            "relevant, timely information. You search the entire Chinese web "
+            "across news portals, industry media, and official sources, filter "
+            "by topic relevance and source diversity, and organize concise "
+            "article summaries. You work in Chinese to ensure comprehensive results."
         ),
         tools=[search_tool],
         llm=llm,
@@ -35,6 +40,9 @@ def create_agents(search_tool, llm):
         allow_delegation=False,
     )
 
+    return collector
+
+def create_analyzer(llm):
     analyzer = Agent(
         role="News Analysis Expert",
         goal=(
@@ -55,6 +63,9 @@ def create_agents(search_tool, llm):
         allow_delegation=False,
     )
 
+    return analyzer
+
+def create_reporter(llm):
     reporter = Agent(
         role="Senior News Reporter",
         goal=(
@@ -75,7 +86,7 @@ def create_agents(search_tool, llm):
         allow_delegation=False,
     )
 
-    return collector, analyzer, reporter
+    return reporter
 
 
 def create_auditor(llm):
@@ -106,7 +117,7 @@ def create_auditor(llm):
 
 
 def create_fact_checker(llm):
-    return Agent(
+    fact_checker = Agent(
         role="Fact Checker & Verification Specialist",
         goal=(
             "Cross-verify every key claim, fact, and data point in the analysis "
@@ -128,3 +139,5 @@ def create_fact_checker(llm):
         verbose=True,
         allow_delegation=False,
     )
+
+    return fact_checker
