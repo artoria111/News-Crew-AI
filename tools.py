@@ -293,4 +293,73 @@ class BochaSearchTool(BaseTool):
         if not results:
             return f"No web articles found for: {query}"
 
-        return "\n---\n".join(results[: self.max_results])
+        return _dedupe_results(results)[: self.max_results]
+
+
+def _dedupe_results(results: list[str]) -> list[str]:
+    """Deduplicate Bocha search hits by normalized URL + fuzzy title key.
+
+    Two articles are considered duplicates when EITHER:
+      - their normalized URLs match (strip trailing slash, .html, m./www. prefix,
+        common tracking params), OR
+      - their title fuzzy-key matches (first 24 chars after stripping whitespace +
+        stripping a common " |site-name" suffix).
+
+    Keeps the first occurrence (which has the freshest data since Bocha returns
+    in relevance order).
+    """
+    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+
+    _TRACKING_PARAMS = {
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "from", "spm", "spm_id_from",
+    }
+
+    def _normalize_url(u: str) -> str:
+        try:
+            p = urlparse(u.strip())
+        except Exception:
+            return u.strip().lower()
+        host = p.netloc.lower()
+        # collapse m. / mobile. subdomain variants to the bare domain
+        for prefix in ("m.", "mobile.", "www."):
+            if host.startswith(prefix):
+                host = host[len(prefix):]
+                break
+        path = p.path.rstrip("/")
+        if path.endswith("/index.html"):
+            path = path[:-11]
+        if path.endswith(".html"):
+            path = path[:-5]
+        # strip tracking params
+        qs = parse_qs(p.query, keep_blank_values=False)
+        qs = {k: v for k, v in qs.items() if k not in _TRACKING_PARAMS}
+        query = urlencode(qs, doseq=True)
+        return urlunparse(("", host, path, "", query, "")).lower()
+
+    _PUNCT_RE = re.compile(r"[\s\W_]+", re.UNICODE)
+
+    def _title_key(t: str) -> str:
+        # drop trailing " |site name" or " -site name" common patterns
+        t = re.sub(r"\s*[|\-–—]\s*[^\s|—–-]+$", "", t)
+        t = _PUNCT_RE.sub("", t).lower()
+        return t[:24]
+
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    kept: list[str] = []
+    for entry in results:
+        url_m = re.search(r"URL:\s*(.+)", entry)
+        title_m = re.search(r"Title:\s*(.+)", entry)
+        url_norm = _normalize_url(url_m.group(1)) if url_m else ""
+        title_key = _title_key(title_m.group(1)) if title_m else ""
+        if url_norm and url_norm in seen_urls:
+            continue
+        if title_key and title_key in seen_titles:
+            continue
+        if url_norm:
+            seen_urls.add(url_norm)
+        if title_key:
+            seen_titles.add(title_key)
+        kept.append(entry)
+    return kept
