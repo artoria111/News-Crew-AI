@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import sys
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 
@@ -59,11 +60,204 @@ def validate_env():
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
 
+class _Tee:
+    """A file-like wrapper that writes to both a real stream and a buffer.
+
+    Used by redirect_stdout/redirect_stderr so the CrewAI verbose output
+    still appears in the terminal while ALSO being captured to a log file.
+    ANSI escape codes are stripped from the buffered copy only — the terminal
+    sees the original (colored) text.
+    """
+    _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+    def __init__(self, real, buf):
+        self._real = real
+        self._buf = buf
+
+    def write(self, s):
+        self._real.write(s)
+        self._buf.write(self._ANSI_RE.sub("", s))
+        return len(s)
+
+    def flush(self):
+        try:
+            self._real.flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        return False
+
+
+# ── per-agent token tracking ───────────────────────────────
+# CrewAI's LLMCallCompletedEvent fires once per LLM call with `usage` (token
+# counts) and `agent_role` / `task_name`. We aggregate per agent and per
+# task so the Streamlit UI can show "who spent the tokens".
+from crewai.events import BaseEventListener
+from crewai.events.event_types import LLMCallCompletedEvent, LLMCallFailedEvent
+
+
+class TokenUsageListener(BaseEventListener):
+    def __init__(self):
+        super().__init__()
+        # {agent_role: {"prompt": int, "completion": int, "calls": int, "tasks": set}}
+        self.by_agent: dict = {}
+        # {task_name: {"prompt": int, "completion": int, "calls": int, "agent": str}}
+        self.by_task: dict = {}
+        self.failed_calls: int = 0
+
+    def setup_listeners(self, crewai_event_bus):
+        @crewai_event_bus.on(LLMCallCompletedEvent)
+        def _on_completed(source, event: LLMCallCompletedEvent):
+            usage = event.usage or {}
+            prompt = int(usage.get("prompt_tokens") or 0)
+            completion = int(usage.get("completion_tokens") or 0)
+            cached = int(usage.get("cached_prompt_tokens") or 0)
+            agent_role = event.agent_role or "unknown"
+            # some LLMs (M3) leak task description into event.task_name.
+            # collapse anything that looks like prompt echo into a short slug.
+            raw_task = event.task_name or "unknown"
+            if len(raw_task) > 60 or any(
+                bad in raw_task
+                for bad in ("🚨", "核心规则", "禁止使用", "修正清单", "Phase 2a")
+            ):
+                task_name = f"<{agent_role}>"
+            else:
+                task_name = raw_task
+
+            a = self.by_agent.setdefault(
+                agent_role, {"prompt": 0, "completion": 0, "cached": 0, "calls": 0, "tasks": set()}
+            )
+            a["prompt"] += prompt
+            a["completion"] += completion
+            a["cached"] += cached
+            a["calls"] += 1
+            a["tasks"].add(task_name)
+
+            t = self.by_task.setdefault(
+                task_name, {"prompt": 0, "completion": 0, "cached": 0, "calls": 0, "agent": agent_role}
+            )
+            t["prompt"] += prompt
+            t["completion"] += completion
+            t["cached"] += cached
+            t["calls"] += 1
+
+        @crewai_event_bus.on(LLMCallFailedEvent)
+        def _on_failed(source, event: LLMCallFailedEvent):
+            self.failed_calls += 1
+
+
+def _format_token_table(by_agent: dict, by_task: dict, failed: int) -> str:
+    """Render a markdown table of token usage per agent and per task."""
+    lines = ["## 📊 Token 用量统计\n"]
+
+    lines.append("### 按 Agent 统计\n")
+    lines.append("| Agent | 调用次数 | Prompt | Cached | Completion | 关联任务 |")
+    lines.append("|---|---:|---:|---:|---:|---|")
+    for role, m in sorted(by_agent.items(), key=lambda x: -(x[1]["prompt"] + x[1]["completion"])):
+        tasks = ", ".join(sorted(m["tasks"])) or "-"
+        lines.append(f"| {role} | {m['calls']} | {m['prompt']} | {m['cached']} | {m['completion']} | {tasks} |")
+
+    lines.append("\n### 按 Task 统计\n")
+    lines.append("| Task | Agent | 调用 | Prompt | Cached | Completion |")
+    lines.append("|---|---|---:|---:|---:|---:|")
+    for task, m in sorted(by_task.items(), key=lambda x: -(x[1]["prompt"] + x[1]["completion"])):
+        lines.append(f"| {task} | {m['agent']} | {m['calls']} | {m['prompt']} | {m['cached']} | {m['completion']} |")
+
+    total_prompt = sum(m["prompt"] for m in by_agent.values())
+    total_cached = sum(m["cached"] for m in by_agent.values())
+    total_completion = sum(m["completion"] for m in by_agent.values())
+    lines.append(
+        f"\n**总计**: Prompt {total_prompt} (其中 Cached {total_cached})"
+        f" + Completion {total_completion} = **{total_prompt + total_completion} token**"
+        f" | **失败调用**: {failed}\n"
+    )
+    return "\n".join(lines)
+
+
 def _count_errors(fact_check_output: str) -> int:
     """Parse fact-check output to count discovered errors."""
     errors = re.findall(r"错误陈述", fact_check_output)
     cross_marks = fact_check_output.count("❌")
     return max(len(errors), cross_marks)
+
+
+# prompt fragments that, if echoed back into the report, indicate the LLM
+# is leaking its task description instead of producing the clean report.
+# Used to scrub accidental prompt echoes from the final user-facing output.
+_PROMPT_ECHO_MARKERS = (
+    "报告必须严格",
+    "禁止使用 example.com",
+    "不要在报告中显示任何修正清单",
+    "Markdown 格式，中文撰写",
+    "🚨 核心规则",
+    "🚨 URL 规则",
+    "严格遵循 5 部分",
+)
+
+
+def _strip_prompt_echo(text: str) -> str:
+    """Remove lines / blocks that look like a leaked task description.
+
+    Two passes:
+    1. Drop leading echo: if the report starts with description fragments
+       ("### 1. 执行摘要" → "### 2. 核心主题" → ...) before the actual
+       "# <report title>", discard everything up to and including the
+       last "### 5. 参考来源" / "报告末尾固定加上" line.
+    2. Drop inline echoes: any line matching a known prompt marker
+       starts a drop-window until a real-content marker appears.
+    """
+    lines = text.splitlines()
+
+    # ── pass 1: leading-echo detection ──────────────────────
+    # the legitimate report's H1 starts with "# " (single hash) and is
+    # followed by a real title. Everything before that, AND everything
+    # between the H1 and the next blank-line-followed-by-body, is suspect
+    # if it contains the description's 5-section template.
+    section_titles = (
+        "### 1. 执行摘要",
+        "### 2. 核心主题",
+        "### 3. 风险与挑战",
+        "### 4. 关键结论",
+        "### 5. 参考来源",
+        "报告末尾固定加上",
+        "报告结构（固定",
+        "报告结构(固定",
+    )
+    h1_idx = None
+    for idx, ln in enumerate(lines):
+        if ln.startswith("# ") and not ln.startswith("## "):
+            # skip a stray # appearing inside echo
+            if h1_idx is None:
+                h1_idx = idx
+                break
+
+    if h1_idx is not None and h1_idx > 0:
+        head = "\n".join(lines[:h1_idx])
+        # if head contains any section template title, discard all of it
+        if any(sec in head for sec in section_titles):
+            lines = lines[h1_idx:]
+
+    # ── pass 2: inline-echo detection ──────────────────────
+    out_lines = []
+    drop_block = False
+    for ln in lines:
+        stripped = ln.strip()
+        # start dropping a block when we hit a known prompt instruction
+        if any(marker in stripped for marker in _PROMPT_ECHO_MARKERS):
+            drop_block = True
+            continue
+        # stop dropping once we reach a clearly-user-facing line
+        if drop_block and (
+            stripped.startswith(("#", ">", "---", "|", "1.", "2.", "3.", "4.", "5.", "["))
+            or "http" in stripped
+            or len(stripped) > 80
+        ):
+            drop_block = False
+        if drop_block:
+            continue
+        out_lines.append(ln)
+    return "\n".join(out_lines).strip() + "\n"
 
 
 def _validate_report(report: str, query: str) -> str:
@@ -120,6 +314,13 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
     log_path = os.path.join(LOG_DIR, f"crew_{safe_topic}_{stamp}.log")
     log_buffer = io.StringIO()
     log_file = open(log_path, "w", encoding="utf-8")
+    # tee stdout/stderr: writes go to both the real terminal (so users see
+    # live progress) and the in-memory buffer (flushed to log_file on exit).
+    stdout_tee = _Tee(sys.stdout, log_buffer)
+    stderr_tee = _Tee(sys.stderr, log_buffer)
+
+    # attach a per-run token usage listener (auto-registers on bus)
+    token_listener = TokenUsageListener()
 
     llm = create_llm()
     search_tool = TOOL_CLASS()
@@ -132,13 +333,21 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
     collector = create_collector(search_tool, llm)
     analyzer = create_analyzer(llm)
     reporter = create_reporter(llm)
+
+    # ── pre-search: some LLMs (e.g. MiniMax M3) don't serialize tool args
+    # correctly, so the agent invents fake results. Run the search directly
+    # here and inject the raw output into the task description.
+    print("🔍 直接预搜索 (绕过 agent tool-calling)...")
+    raw_search = search_tool._run(topic)
+    inputs["raw_articles"] = raw_search
+
     collect_task, analyze_task = create_tasks(collector, analyzer)
     fact_checker = create_fact_checker(llm)
     auditor = create_auditor(llm)
 
     try:
-        with redirect_stdout(log_buffer), redirect_stderr(log_buffer):
-            return _run_crew_pipeline(
+        with redirect_stdout(stdout_tee), redirect_stderr(stderr_tee):
+            report, audit = _run_crew_pipeline(
                 topic=topic,
                 max_articles=max_articles,
                 days_back=days_back,
@@ -155,6 +364,13 @@ def run_crew(topic: str, max_articles: int = 5, days_back: int = 7):
         log_file.write(log_buffer.getvalue())
         log_file.close()
         print(f"\n📝 运行日志已保存: {log_path}")
+
+    # append token usage summary to the report
+    token_report = _format_token_table(
+        token_listener.by_agent, token_listener.by_task, token_listener.failed_calls
+    )
+    report = report + "\n\n---\n\n" + token_report
+    return report, audit
 
 
 def _run_crew_pipeline(
@@ -298,5 +514,6 @@ def _run_crew_pipeline(
     result3 = audit_crew.kickoff()
     audit = result3.tasks_output[0].raw if len(result3.tasks_output) > 0 else ""
 
+    report = _strip_prompt_echo(report)
     report = _validate_report(report, topic)
     return report, audit
